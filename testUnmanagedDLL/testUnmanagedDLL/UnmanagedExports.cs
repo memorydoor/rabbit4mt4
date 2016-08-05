@@ -8,6 +8,12 @@ using RabbitMQ.Client;
 using RabbitMQ.Client.Events;
 using System.Collections.Generic;
 
+using log4net;
+using log4net.Repository.Hierarchy;
+using log4net.Core;
+using log4net.Appender;
+using log4net.Layout;
+
 /*
  * Metatrader / RabbitMQ bridge
  * 
@@ -28,7 +34,8 @@ using System.Collections.Generic;
  * https://sites.google.com/site/femtotrader/donate 
  * 
  */
-using System.Web.Script.Serialization; // default JSON (System.Web.Extensions)
+using System.Web.Script.Serialization;
+using System.IO; // default JSON (System.Web.Extensions)
 //using Newtonsoft.Json; // installed using NuGet 
 
 public class TickDouble
@@ -145,19 +152,58 @@ namespace Rabbit4mt4DLL
 
         private static bool m_wait_message;
 
+        private static log4net.ILog log;
+
+
+        static Test()
+        {
+            Setup();
+            log4net.Config.BasicConfigurator.Configure();
+            log = log4net.LogManager.GetLogger(typeof(Test));
+        }
+
+        public static void Setup()
+        {
+            Hierarchy hierarchy = (Hierarchy)LogManager.GetRepository();
+
+            PatternLayout patternLayout = new PatternLayout();
+            patternLayout.ConversionPattern = "%date [%thread] %-5level %logger - %message%newline";
+            patternLayout.ActivateOptions();
+
+            RollingFileAppender roller = new RollingFileAppender();
+            roller.AppendToFile = true;
+
+            roller.File = @"D:/Log.txt";
+            roller.Layout = patternLayout;
+            roller.MaxSizeRollBackups = 5;
+            roller.MaximumFileSize = "1GB";
+            roller.RollingStyle = RollingFileAppender.RollingMode.Size;
+            roller.StaticLogFileName = true;
+            roller.ActivateOptions();
+            hierarchy.Root.AddAppender(roller);
+
+            MemoryAppender memory = new MemoryAppender();
+            memory.ActivateOptions();
+            hierarchy.Root.AddAppender(memory);
+
+            hierarchy.Root.Level = Level.Info;
+            hierarchy.Configured = true;
+        }
+
         //private static DateTime m_dt_init;
 
         /*
          * Initialize RabbitMQ connection
          */
         [DllExport("InitializeMQConnection", CallingConvention = CallingConvention.StdCall)]
-        public static int InitializeMQConnection([MarshalAs(UnmanagedType.LPWStr)] string hostName, [MarshalAs(UnmanagedType.LPWStr)] string username, [MarshalAs(UnmanagedType.LPWStr)] string password, [MarshalAs(UnmanagedType.LPWStr)] string virtualhost, [MarshalAs(UnmanagedType.LPWStr)] string exchange, [MarshalAs(UnmanagedType.LPWStr)] string routingkey_root)
+        [return: MarshalAs(UnmanagedType.LPWStr)]
+        public static string InitializeMQConnection([MarshalAs(UnmanagedType.LPWStr)] string hostName, [MarshalAs(UnmanagedType.LPWStr)] string username, [MarshalAs(UnmanagedType.LPWStr)] string password, [MarshalAs(UnmanagedType.LPWStr)] string virtualhost, [MarshalAs(UnmanagedType.LPWStr)] string exchange, [MarshalAs(UnmanagedType.LPWStr)] string routingkey_root)
         {
             try
             {
 
                 m_hostName = hostName; // "localhost";
-
+                Console.WriteLine("m_hostName");
                 m_exchange = exchange; //"topic_logs";
                 m_routingkey_root = routingkey_root;
 
@@ -173,12 +219,13 @@ namespace Rabbit4mt4DLL
                 factory.VirtualHost = virtualhost;
                 
                 m_connection = factory.CreateConnection();
-                return (0);
+                return ("yes");
             }
             catch (Exception e)
             {
+                Console.WriteLine(e.Message);
                 ShowDLLException(e);
-                return (1);
+                return (e.Message);
             } 
 
         }
@@ -189,6 +236,55 @@ namespace Rabbit4mt4DLL
         private static void ShowDLLException(Exception e)
         {
             MessageBox.Show(e.Message, "DLL exception", MessageBoxButtons.OK, MessageBoxIcon.Exclamation, MessageBoxDefaultButton.Button1);
+        }
+
+        /*
+         * Recieve message through QueueingBasicConsumer
+         */
+        private static IModel channel;
+        
+        [DllExport("GetMessageFromQueue", CallingConvention = CallingConvention.StdCall)]
+        [return: MarshalAs(UnmanagedType.LPWStr)]
+        public static string GetMessageFromQueue([MarshalAs(UnmanagedType.LPWStr)] string queueName)
+        {
+
+            log.Debug("Hello World!");
+            log.Info("I'm a simple log4net tutorial.");
+            log.Warn("... better be careful ...");
+            log.Error("ruh-roh: an error occurred");
+            log.Fatal("OMG we're dooooooomed!");
+
+            //Console.ReadLine();  // so you can read the output
+
+            if (channel == null) {
+                channel = m_connection.CreateModel();
+            }
+
+            bool noAck = false;
+            BasicGetResult result = channel.BasicGet(queueName, noAck);
+            if (result == null)
+            {
+                // No message available at this time.
+                return null;
+            }
+            else
+            {
+                IBasicProperties props = result.BasicProperties;
+                byte[] body = result.Body;
+                // acknowledge receipt of the message
+                channel.BasicAck(result.DeliveryTag, false);
+
+                var message = Encoding.UTF8.GetString(body);
+                return (message);
+            }
+        }
+
+
+        [DllExport("GetMessage", CallingConvention = CallingConvention.StdCall)]
+        [return: MarshalAs(UnmanagedType.LPWStr)]
+        public static string GetMessage()
+        {
+            return (m_message);
         }
 
 
@@ -225,7 +321,8 @@ namespace Rabbit4mt4DLL
             try
             {
                 IModel channel = m_connection.CreateModel();
-                channel.ExchangeDeclare(m_exchange, "topic");
+                //channel.ExchangeDeclare(m_exchange, "direct");
+                channel.ExchangeDeclareNoWait(m_exchange, "direct", true, false, null);
                 channel.BasicPublish(m_exchange, routingkey, null, Encoding.UTF8.GetBytes(message));
                 channel.Close();
                 return (0);
@@ -248,7 +345,7 @@ namespace Rabbit4mt4DLL
             try
             {
                 IModel channel = m_connection.CreateModel();
-                channel.QueueDeclare(queue, false, false, false, null);
+                channel.QueueDeclare(queue, true, false, false, null);
                 channel.BasicPublish("", queue, null, Encoding.UTF8.GetBytes(message));
                 channel.Close();
                 return (0);
@@ -312,7 +409,7 @@ namespace Rabbit4mt4DLL
             //DateTime m_dt_init = DateTime.UtcNow;
             //return ("Rabbit4mt4 v1.0.0 " + m_dt_init.ToString());
             string msg;
-            msg = "Rabbit4mt4 v1.0.0 " + m_routingkey_root;
+            msg = "Rabbit4mt4 v1.0.0 " + RabbitMQ.Client.ExchangeType.Topic.ToString();
             return (msg);
         }
 
@@ -377,14 +474,6 @@ namespace Rabbit4mt4DLL
             } */
 
             return (0);
-        }
-
-
-        [DllExport("GetMessage", CallingConvention = CallingConvention.StdCall)]
-        [return: MarshalAs(UnmanagedType.LPWStr)]
-        public static string GetMessage()
-        {
-            return (m_message);
         }
 
     }

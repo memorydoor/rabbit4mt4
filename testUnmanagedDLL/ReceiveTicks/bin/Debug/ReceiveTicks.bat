@@ -1,2 +1,0 @@
-ReceiveTicks.exe #
-pause
