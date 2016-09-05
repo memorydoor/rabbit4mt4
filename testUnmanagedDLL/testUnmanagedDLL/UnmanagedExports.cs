@@ -241,8 +241,7 @@ namespace Rabbit4mt4DLL
         /*
          * Recieve message through QueueingBasicConsumer
          */
-        private static IModel channel;
-        
+
         [DllExport("GetMessageFromQueue", CallingConvention = CallingConvention.StdCall)]
         [return: MarshalAs(UnmanagedType.LPWStr)]
         public static string GetMessageFromQueue([MarshalAs(UnmanagedType.LPWStr)] string queueName)
@@ -256,9 +255,7 @@ namespace Rabbit4mt4DLL
 
             //Console.ReadLine();  // so you can read the output
 
-            if (channel == null) {
-                channel = m_connection.CreateModel();
-            }
+            IModel channel = m_connection.CreateModel();
 
             bool noAck = false;
             BasicGetResult result = channel.BasicGet(queueName, noAck);

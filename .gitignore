@@ -66,3 +66,5 @@ obj/
 packages
 testUnmanagedDLL/ReceiveDOM/obj/Debug/DesignTimeResolveAssemblyReferencesInput.cache
 testUnmanagedDLL/testUnmanagedDLL/obj/x86/Debug/DesignTimeResolveAssemblyReferencesInput.cache
+
+*.suo
