@@ -246,33 +246,31 @@ namespace Rabbit4mt4DLL
         [return: MarshalAs(UnmanagedType.LPWStr)]
         public static string GetMessageFromQueue([MarshalAs(UnmanagedType.LPWStr)] string queueName)
         {
-
-            log.Debug("Hello World!");
-            log.Info("I'm a simple log4net tutorial.");
-            log.Warn("... better be careful ...");
-            log.Error("ruh-roh: an error occurred");
-            log.Fatal("OMG we're dooooooomed!");
-
-            //Console.ReadLine();  // so you can read the output
-
-            IModel channel = m_connection.CreateModel();
-
-            bool noAck = false;
-            BasicGetResult result = channel.BasicGet(queueName, noAck);
-            if (result == null)
+            try
             {
-                // No message available at this time.
-                return null;
+                IModel channel = m_connection.CreateModel();
+
+                bool noAck = false;
+                BasicGetResult result = channel.BasicGet(queueName, noAck);
+
+                var message = "";
+                if (result != null) {
+                    IBasicProperties props = result.BasicProperties;
+                    byte[] body = result.Body;
+                    // acknowledge receipt of the message
+                    channel.BasicAck(result.DeliveryTag, false);
+
+                    message = Encoding.UTF8.GetString(body);
+                }
+
+                channel.Close();
+                return message;
             }
-            else
+            catch (Exception e)
             {
-                IBasicProperties props = result.BasicProperties;
-                byte[] body = result.Body;
-                // acknowledge receipt of the message
-                channel.BasicAck(result.DeliveryTag, false);
-
-                var message = Encoding.UTF8.GetString(body);
-                return (message);
+                Console.WriteLine(e.Message);
+                ShowDLLException(e);
+                return (e.Message);
             }
         }
 
